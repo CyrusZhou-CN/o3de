@@ -29,7 +29,7 @@ jobs:
           git remote add upstream $REMOTE_URL
           
           # 获取远程分支和标签
-          git fetch upstream --tags
+          git fetch --depth 1 upstream --tags
       - name: Sync all branches
         run: |
           REMOTE_REPO="o3de/o3de"
