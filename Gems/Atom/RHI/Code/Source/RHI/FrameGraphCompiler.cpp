@@ -6,20 +6,22 @@
  *
  */
 
-#include <Atom/RHI/FrameGraphCompiler.h>
 #include <Atom/RHI/BufferFrameAttachment.h>
 #include <Atom/RHI/BufferScopeAttachment.h>
+#include <Atom/RHI/BufferView.h>
 #include <Atom/RHI/Factory.h>
 #include <Atom/RHI/FrameGraph.h>
+#include <Atom/RHI/FrameGraphCompiler.h>
 #include <Atom/RHI/ImageFrameAttachment.h>
 #include <Atom/RHI/ImageScopeAttachment.h>
+#include <Atom/RHI/ImageView.h>
 #include <Atom/RHI/RHIUtils.h>
 #include <Atom/RHI/Scope.h>
 #include <Atom/RHI/SwapChainFrameAttachment.h>
 #include <Atom/RHI/TransientAttachmentPool.h>
 #include <AzCore/IO/SystemFile.h>
-#include <AzCore/std/sort.h>
 #include <AzCore/std/optional.h>
+#include <AzCore/std/sort.h>
 
 namespace AZ::RHI
 {
@@ -618,6 +620,8 @@ namespace AZ::RHI
         AZStd::vector<Image*> transientImages(transientImageGraphAttachments.size());
         AZStd::vector<Command> commands;
         commands.reserve((transientBufferGraphAttachments.size() + transientImageGraphAttachments.size()) * 2);
+        AZStd::vector<AZStd::pair<int, uint32_t>> removeBuffers;
+        AZStd::vector<AZStd::pair<int, uint32_t>> removeImages;
 
         if (CheckBitsAny(compileFlags, FrameSchedulerCompileFlags::DisableAttachmentAliasing))
         {
@@ -650,6 +654,7 @@ namespace AZ::RHI
                     const auto* lastScope = transientBuffer->GetLastScope(deviceIndex);
                     if (firstScope == nullptr || lastScope == nullptr)
                     {
+                        removeBuffers.emplace_back(deviceIndex, attachmentIndex);
                         // If the attachment is owned by a pass that isn't a scope-producer (e.g. Parent-Pass), and is not connected to
                         // anything, the first and last scope will be empty. We will get a warning its unused in ValidateEnd(), but we don't
                         // want to crash here
@@ -669,6 +674,7 @@ namespace AZ::RHI
                     const auto* lastScope = transientImage->GetLastScope(deviceIndex);
                     if (firstScope == nullptr || lastScope == nullptr)
                     {
+                        removeImages.emplace_back(deviceIndex, attachmentIndex);
                         // If the attachment is owned by a pass that isn't a scope-producer (e.g. Parent-Pass), and is not connected to
                         // anything, the first and last scope will be empty. We will get a warning its unused in ValidateEnd(), but we don't
                         // want to crash here
@@ -797,7 +803,7 @@ namespace AZ::RHI
                             descriptor.m_imageDescriptor.m_bindFlags, RHI::ImageBindFlags::Color | RHI::ImageBindFlags::DepthStencil);
                         if (isOutputMerger)
                         {
-                            optimizedClearValue = imageFrameAttachment->GetOptimizedClearValue(scopes[currentScopeIndex]->GetDeviceIndex());
+                            optimizedClearValue = imageFrameAttachment->GetOptimizedClearValue(imageFrameAttachment->m_firstDeviceIndex);
                             descriptor.m_optimizedClearValue = &optimizedClearValue;
                         }
 
@@ -842,6 +848,30 @@ namespace AZ::RHI
                 poolCompileFlags |= TransientAttachmentPoolCompileFlags::GatherStatistics;
             }
             processCommands(deviceIndex, poolCompileFlags, memoryUsage ? &memoryUsage.value() : nullptr);
+        }
+
+        for (auto& [deviceIndex, attachmentIndex] : removeImages)
+        {
+            ImageFrameAttachment* imageFrameAttachment = transientImageGraphAttachments[attachmentIndex];
+
+            auto image = imageFrameAttachment->GetImage();
+
+            if (image)
+            {
+                transientAttachmentPool.RemoveDeviceImage(deviceIndex, image);
+            }
+        }
+
+        for (auto& [deviceIndex, attachmentIndex] : removeBuffers)
+        {
+            BufferFrameAttachment* bufferFrameAttachment = transientBufferGraphAttachments[attachmentIndex];
+
+            auto buffer = bufferFrameAttachment->GetBuffer();
+
+            if (buffer)
+            {
+                transientAttachmentPool.RemoveDeviceBuffer(deviceIndex, buffer);
+            }
         }
     }
 
@@ -921,8 +951,20 @@ namespace AZ::RHI
                 {
                     const ImageViewDescriptor& imageViewDescriptor = node->GetDescriptor().m_imageViewDescriptor;
 
-                    // Multi device image views don't have a global cache, so we always cache them
-                    ImageView* imageView = GetImageViewFromLocalCache(image, imageViewDescriptor);
+                    ImageView* imageView = nullptr;
+                    // Check image's cache first as that contains views provided by higher level code.
+                    if (image->IsInResourceCache(imageViewDescriptor))
+                    {
+                        imageView = image->BuildImageView(imageViewDescriptor).get();
+                    }
+                    else
+                    {
+                        // If the higher level code has not provided a view, check local frame graph compiler's local cache.
+                        // The local cache is special and was mainly added to handle transient resources. This cache adds a dependency to
+                        // the resourceview ensuring they do not get deleted at the end of the frame and recreated at the start of the next
+                        // frame.
+                        imageView = GetImageViewFromLocalCache(image, imageViewDescriptor);
+                    }
 
                     node->SetImageView(imageView);
                 }
@@ -947,8 +989,20 @@ namespace AZ::RHI
                 {
                     const BufferViewDescriptor& bufferViewDescriptor = node->GetDescriptor().m_bufferViewDescriptor;
 
-                    // Multi device buffer views don't have a global cache, so we always cache them
-                    BufferView* bufferView = GetBufferViewFromLocalCache(buffer, bufferViewDescriptor);
+                    BufferView* bufferView = nullptr;
+                    // Check buffer's cache first as that contains views provided by higher level code.
+                    if (buffer->IsInResourceCache(bufferViewDescriptor))
+                    {
+                        bufferView = buffer->BuildBufferView(bufferViewDescriptor).get();
+                    }
+                    else
+                    {
+                        // If the higher level code has not provided a view, check local frame graph compiler's local cache.
+                        // The local cache is special and was mainly added to handle transient resources. This cache adds a dependency to
+                        // the resourceview ensuring they do not get deleted at the end of the frame and recreated at the start of the next
+                        // frame.
+                        bufferView = GetBufferViewFromLocalCache(buffer, bufferViewDescriptor);
+                    }
 
                     node->SetBufferView(bufferView);
                 }
