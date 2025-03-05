@@ -33,6 +33,10 @@ jobs:
           git fetch --depth 1 upstream --tags
           git push --tags --progress "origin" --force
 
+      - name: Fetch LFS objects
+        run: |
+          git lfs fetch --all
+          
       - name: Sync all branches
         run: |
           REMOTE_REPO="o3de/o3de"
@@ -51,10 +55,6 @@ jobs:
               git push origin $branch --force
             fi
           done
-
-      - name: Fetch LFS objects
-        run: |
-          git lfs fetch --all
 
       - name: Push tags to own repo
         run: |
