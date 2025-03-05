@@ -37,25 +37,6 @@ jobs:
         run: |
           git lfs fetch --all
           
-      - name: Sync all branches
-        run: |
-          REMOTE_REPO="o3de/o3de"
-          LOCAL_REPO="CyrusZhou-CN/o3de"
-          REMOTE_BRANCHES=$(gh api repos/$REMOTE_REPO/branches  --paginate  --jq '.[].name')
-          LOCAL_BRANCHES=$(gh api repos/$LOCAL_REPO/branches  --paginate  --jq '.[].name')
-          
-          for branch in $REMOTE_BRANCHES; do
-            echo "Checking if local branch $branch exists"
-            if echo "$LOCAL_BRANCHES" | grep -E "^$branch$" > /dev/null; then
-              echo "Syncing branch: $branch"
-              gh repo sync $LOCAL_REPO -b $branch --force
-            else
-              echo "Local branch $branch exists, syncing..."
-              git checkout -b $branch upstream/$branch
-              git push origin $branch --force
-            fi
-          done
-
       - name: Push tags to own repo
         run: |
           git remote update --prune
