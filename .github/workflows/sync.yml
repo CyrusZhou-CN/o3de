@@ -60,6 +60,11 @@ jobs:
         run: |
           git remote update --prune
 
+      - name: Debug Info
+        run: |
+          git lfs env
+          git remote -v
+
       - name: Cleanup
         run: |
           git gc --prune=now
