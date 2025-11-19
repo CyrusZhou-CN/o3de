@@ -243,9 +243,7 @@ struct ISoundKey
     ISoundKey()
         : fDuration(0.0f)
     {
-        customColor.x = Col_TrackviewDefault.r;
-        customColor.y = Col_TrackviewDefault.g;
-        customColor.z = Col_TrackviewDefault.b;
+        customColor.Set(Col_TrackviewDefault.r, Col_TrackviewDefault.g, Col_TrackviewDefault.b);
     }
 
     AZStd::string sStartTrigger;
@@ -520,12 +518,27 @@ struct IScreenFaderKey
 
     //-----------------------------------------------------------------------------
     //!
-    float       m_fadeTime;
-    AZ::Color   m_fadeColor;
-    AZStd::string m_strTexture;
-    bool        m_bUseCurColor;
-    EFadeType   m_fadeType;
+    float           m_fadeTime;
+    AZ::Color       m_fadeColor;
+    AZStd::string   m_strTexture;
+    bool            m_bUseCurColor;
+    EFadeType       m_fadeType;
     EFadeChangeType m_fadeChangeType;
+};
+
+/** IStringKey used in string tracks.
+ */
+struct IStringKey
+    : public IKey
+{
+    AZStd::string m_strValue;
+
+    IStringKey() = default;
+
+    IStringKey(const AZStd::string value)
+        : m_strValue(value) 
+    {
+    }
 };
 
 namespace AZ
@@ -544,5 +557,6 @@ namespace AZ
     AZ_TYPE_INFO_SPECIALIZE(ISequenceKey, "{B55294AD-F14E-43AC-B6B5-AC27B377FE00}");
     AZ_TYPE_INFO_SPECIALIZE(ISoundKey, "{452E50CF-B7D0-42D5-A86A-B295682674BB}");
     AZ_TYPE_INFO_SPECIALIZE(ITimeRangeKey, "{17807C95-C7A1-481B-AD94-C54D83928D0B}");
+    AZ_TYPE_INFO_SPECIALIZE(IStringKey, "{A35D94C2-776B-4BA7-BBBC-1A1FD4402023}");
 }
 #endif // CRYINCLUDE_CRYCOMMON_ANIMKEY_H

@@ -344,10 +344,7 @@ enum EMenuItem
 
 // The 'MI' represents a Menu Item.
 
-AZ_PUSH_DISABLE_DLL_EXPORT_MEMBER_WARNING
 #include <TrackView/ui_TrackViewNodes.h>
-AZ_POP_DISABLE_DLL_EXPORT_MEMBER_WARNING
-
 
 CTrackViewNodesCtrl::CTrackViewNodesCtrl(QWidget* hParentWnd, CTrackViewDialog* parent /* = 0 */)
     : QWidget(hParentWnd)
@@ -882,7 +879,10 @@ void CTrackViewNodesCtrl::OnNMRclick(QPoint point)
             {
                 AzToolsFramework::ScopedUndoBatch undoBatch("Add Entities to Track View");
                 CTrackViewAnimNodeBundle addedNodes = groupNode->AddSelectedEntities(m_pTrackViewDialog->GetDefaultTracksForEntityNode());
-                undoBatch.MarkEntityDirty(groupNode->GetSequence()->GetSequenceComponentEntityId());
+                if (addedNodes.GetCount() > 0)
+                {
+                    undoBatch.MarkEntityDirty(groupNode->GetSequence()->GetSequenceComponentEntityId());
+                }
 
                 int selectedEntitiesCount = 0;
                 AzToolsFramework::ToolsApplicationRequestBus::BroadcastResult(
@@ -921,7 +921,10 @@ void CTrackViewNodesCtrl::OnNMRclick(QPoint point)
                         shortMessages = messages;
                     }
 
-                    QMessageBox::information(this, tr("Track View Warning"), tr(shortMessages.c_str()));
+                    if (!shortMessages.empty())
+                    {
+                        QMessageBox::information(this, tr("Track View Warning"), tr(shortMessages.c_str()));
+                    }
 
                     // clear the notification log now that we've consumed and presented them.
                     movieSystem->ClearUserNotificationMsgs();

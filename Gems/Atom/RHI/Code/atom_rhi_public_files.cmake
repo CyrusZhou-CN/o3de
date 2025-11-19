@@ -7,6 +7,7 @@
 #
 
 set(FILES
+    Include/Atom/RHI/Base.h
     Include/Atom/RHI/Allocator.h
     Include/Atom/RHI/FreeListAllocator.h
     Include/Atom/RHI/LinearAllocator.h
@@ -45,6 +46,7 @@ set(FILES
     Include/Atom/RHI/DeviceCopyItem.h
     Include/Atom/RHI/CopyItem.h
     Include/Atom/RHI/ConstantsData.h
+    Include/Atom/RHI/Debug.h
     Include/Atom/RHI/DeviceDispatchItem.h
     Include/Atom/RHI/DispatchItem.h
     Include/Atom/RHI/DrawFilterTagRegistry.h
@@ -189,10 +191,14 @@ set(FILES
     Source/RHI/QueryPoolSubAllocator.cpp
     Include/Atom/RHI/DeviceResource.h
     Include/Atom/RHI/Resource.h
+    Include/Atom/RHI/ResourceView.h
+    Include/Atom/RHI/ResourceViewCache.h
     Include/Atom/RHI/ResourceInvalidateBus.h
     Include/Atom/RHI/DeviceResourceView.h
     Source/RHI/DeviceResource.cpp
     Source/RHI/Resource.cpp
+    Source/RHI/ResourceView.cpp
+    Source/RHI/ResourceViewCache.cpp
     Source/RHI/DeviceResourceView.cpp
     Include/Atom/RHI/DeviceResourcePool.h
     Include/Atom/RHI/ResourcePool.h

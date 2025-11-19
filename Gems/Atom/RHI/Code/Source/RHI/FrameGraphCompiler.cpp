@@ -616,8 +616,6 @@ namespace AZ::RHI
             transientBufferGraphAttachments.size() + transientImageGraphAttachments.size() < AZ_BIT(ATTACHMENT_BIT_COUNT),
             "Exceeded maximum number of allowed attachments");
 
-        AZStd::vector<Buffer*> transientBuffers(transientBufferGraphAttachments.size());
-        AZStd::vector<Image*> transientImages(transientImageGraphAttachments.size());
         AZStd::vector<Command> commands;
         commands.reserve((transientBufferGraphAttachments.size() + transientImageGraphAttachments.size()) * 2);
         AZStd::vector<AZStd::pair<int, uint32_t>> removeBuffers;
@@ -690,15 +688,16 @@ namespace AZ::RHI
 
         AZStd::sort(commands.begin(), commands.end());
 
-        auto processCommands = [&](int deviceIndex,
-                                   TransientAttachmentPoolCompileFlags compileFlags,
-                                   TransientAttachmentStatistics::MemoryUsage* memoryHint = nullptr)
+        auto processCommands = [&](TransientAttachmentPoolCompileFlags compileFlags, MultiDevice::DeviceMask memoryHintDeviceMask)
         {
-            transientAttachmentPool.Begin(compileFlags, memoryHint);
+            bool allocateResources = !CheckBitsAny(compileFlags, TransientAttachmentPoolCompileFlags::DontAllocateResources);
+            transientAttachmentPool.Begin(compileFlags);
 
             uint32_t currentScopeIndex = static_cast<uint32_t>(-1);
 
-            bool allocateResources = !CheckBitsAny(compileFlags, TransientAttachmentPoolCompileFlags::DontAllocateResources);
+            AZStd::vector<MultiDevice::DeviceMask> transientBuffers(transientBufferGraphAttachments.size(), {});
+            AZStd::vector<MultiDevice::DeviceMask> transientImages(transientImageGraphAttachments.size(), {});
+
             bool beganScope = false;
 
             for (Command command : commands)
@@ -707,8 +706,10 @@ namespace AZ::RHI
                 const uint32_t attachmentIndex = command.m_bits.m_attachmentIndex;
                 const Action action = (Action)command.m_bits.m_action;
 
-                if (scopes[scopeIndex]->GetDeviceIndex() != deviceIndex)
+                if (!allocateResources && !CheckBit(memoryHintDeviceMask, scopes[scopeIndex]->GetDeviceIndex()))
                 {
+                    // We can skip scopes in the exploratory phase if they run on a device that does not use the MemoryHint strategy for
+                    // allocation
                     continue;
                 }
 
@@ -717,11 +718,6 @@ namespace AZ::RHI
                 while (currentScopeIndex != scopeIndex)
                 {
                     const uint32_t nextScope = ++currentScopeIndex;
-
-                    if (scopes[nextScope]->GetDeviceIndex() != deviceIndex)
-                    {
-                        continue;
-                    }
 
                     // End the previous scope (if there is one).
                     if (beganScope)
@@ -736,30 +732,32 @@ namespace AZ::RHI
                     transientAttachmentPool.BeginScope(*scopes[nextScope]);
                 }
 
+                const int scopeDeviceIndex = scopes[currentScopeIndex]->GetDeviceIndex();
+
                 switch (action)
                 {
 
                 case Action::DeactivateBuffer:
                     {
                         AZ_Assert(
-                            !allocateResources || transientBuffers[attachmentIndex] || IsNullRHI(),
+                            !allocateResources || CheckBit(transientBuffers[attachmentIndex], scopeDeviceIndex) || IsNullRHI(),
                             "DeviceBuffer is not active: %s",
                             transientBufferGraphAttachments[attachmentIndex]->GetId().GetCStr());
                         BufferFrameAttachment* bufferFrameAttachment = transientBufferGraphAttachments[attachmentIndex];
                         transientAttachmentPool.DeactivateBuffer(bufferFrameAttachment->GetId());
-                        transientBuffers[attachmentIndex] = nullptr;
+                        transientBuffers[attachmentIndex] = ResetBit(transientBuffers[attachmentIndex], scopeDeviceIndex);
                         break;
                     }
 
                 case Action::DeactivateImage:
                     {
                         AZ_Assert(
-                            !allocateResources || transientImages[attachmentIndex] || IsNullRHI(),
+                            !allocateResources || CheckBit(transientImages[attachmentIndex], scopeDeviceIndex) || IsNullRHI(),
                             "DeviceImage is not active: %s",
                             transientImageGraphAttachments[attachmentIndex]->GetId().GetCStr());
                         ImageFrameAttachment* imageFrameAttachment = transientImageGraphAttachments[attachmentIndex];
                         transientAttachmentPool.DeactivateImage(imageFrameAttachment->GetId());
-                        transientImages[attachmentIndex] = nullptr;
+                        transientImages[attachmentIndex] = ResetBit(transientImages[attachmentIndex], scopeDeviceIndex);
                         break;
                     }
 
@@ -767,7 +765,7 @@ namespace AZ::RHI
                     {
                         BufferFrameAttachment* bufferFrameAttachment = transientBufferGraphAttachments[attachmentIndex];
                         AZ_Assert(
-                            transientBuffers[attachmentIndex] == nullptr,
+                            !CheckBit(transientBuffers[attachmentIndex], scopeDeviceIndex),
                             "DeviceBuffer has been activated already. %s",
                             bufferFrameAttachment->GetId().GetCStr());
 
@@ -779,7 +777,7 @@ namespace AZ::RHI
                         if (allocateResources && buffer)
                         {
                             bufferFrameAttachment->SetResource(buffer, scopes[currentScopeIndex]->GetDeviceIndex());
-                            transientBuffers[attachmentIndex] = buffer;
+                            transientBuffers[attachmentIndex] = SetBit(transientBuffers[attachmentIndex], scopeDeviceIndex);
                         }
                         break;
                     }
@@ -788,7 +786,7 @@ namespace AZ::RHI
                     {
                         ImageFrameAttachment* imageFrameAttachment = transientImageGraphAttachments[attachmentIndex];
                         AZ_Assert(
-                            transientImages[attachmentIndex] == nullptr,
+                            !CheckBit(transientImages[attachmentIndex], scopeIndex),
                             "DeviceImage has been activated already. %s",
                             imageFrameAttachment->GetId().GetCStr());
 
@@ -811,7 +809,7 @@ namespace AZ::RHI
                         if (allocateResources && image)
                         {
                             imageFrameAttachment->SetResource(image, scopes[currentScopeIndex]->GetDeviceIndex());
-                            transientImages[attachmentIndex] = image;
+                            transientImages[attachmentIndex] = SetBit(transientImages[attachmentIndex], scopeDeviceIndex);
                         }
                         break;
                     }
@@ -826,29 +824,31 @@ namespace AZ::RHI
             transientAttachmentPool.End();
         };
 
+        MultiDevice::DeviceMask memoryHintDeviceMask{};
         for (auto& [deviceIndex, descriptor] : transientAttachmentPool.GetDescriptor())
         {
-            AZStd::optional<TransientAttachmentStatistics::MemoryUsage> memoryUsage;
-
-            // Check if we need to do two passes (one for calculating the size and the second one for allocating the resources)
             if (descriptor.m_heapParameters.m_type == HeapAllocationStrategy::MemoryHint)
             {
-                // First pass to calculate size needed.
-                processCommands(
-                    deviceIndex,
-                    TransientAttachmentPoolCompileFlags::GatherStatistics | TransientAttachmentPoolCompileFlags::DontAllocateResources);
-                auto statistics = transientAttachmentPool.GetDeviceTransientAttachmentPool(deviceIndex)->GetStatistics();
-                memoryUsage = statistics.m_reservedMemory;
+                memoryHintDeviceMask = SetBit(memoryHintDeviceMask, deviceIndex);
             }
-
-            // Second pass uses the information about memory usage
-            TransientAttachmentPoolCompileFlags poolCompileFlags = TransientAttachmentPoolCompileFlags::None;
-            if (CheckBitsAny(statisticsFlags, FrameSchedulerStatisticsFlags::GatherTransientAttachmentStatistics))
-            {
-                poolCompileFlags |= TransientAttachmentPoolCompileFlags::GatherStatistics;
-            }
-            processCommands(deviceIndex, poolCompileFlags, memoryUsage ? &memoryUsage.value() : nullptr);
         }
+
+        // Check if we need to do two passes (one for calculating the size and the second one for allocating the resources)
+        if (memoryHintDeviceMask != MultiDevice::NoDevices)
+        {
+            // First pass to calculate size needed.
+            processCommands(
+                TransientAttachmentPoolCompileFlags::GatherStatistics | TransientAttachmentPoolCompileFlags::DontAllocateResources,
+                memoryHintDeviceMask);
+        }
+
+        // Second pass uses the information about memory usage
+        TransientAttachmentPoolCompileFlags poolCompileFlags = TransientAttachmentPoolCompileFlags::None;
+        if (CheckBitsAny(statisticsFlags, FrameSchedulerStatisticsFlags::GatherTransientAttachmentStatistics))
+        {
+            poolCompileFlags |= TransientAttachmentPoolCompileFlags::GatherStatistics;
+        }
+        processCommands(poolCompileFlags, memoryHintDeviceMask);
 
         for (auto& [deviceIndex, attachmentIndex] : removeImages)
         {
@@ -891,7 +891,7 @@ namespace AZ::RHI
             const ImageResourceViewData imageResourceViewData = ImageResourceViewData{ image->GetName(), imageViewDescriptor };
             RemoveFromCache(imageResourceViewData, m_imageReverseLookupHash, m_imageViewCache);
             // Create a new image view instance and insert it into the cache.
-            Ptr<ImageView> imageViewPtr = image->BuildImageView(imageViewDescriptor);
+            Ptr<ImageView> imageViewPtr = image->GetImageView(imageViewDescriptor);
             imageView = imageViewPtr.get();
             m_imageViewCache.Insert(static_cast<uint64_t>(hash), AZStd::move(imageViewPtr));
             if (!image->GetName().IsEmpty())
@@ -919,7 +919,7 @@ namespace AZ::RHI
             RemoveFromCache(bufferResourceViewData, m_bufferReverseLookupHash, m_bufferViewCache);
                 
             // Create a new buffer view instance and insert it into the cache.
-            Ptr<BufferView> bufferViewPtr = buffer->BuildBufferView(bufferViewDescriptor);
+            Ptr<BufferView> bufferViewPtr = buffer->GetBufferView(bufferViewDescriptor);
             bufferView = bufferViewPtr.get();
             m_bufferViewCache.Insert(static_cast<uint64_t>(hash), AZStd::move(bufferViewPtr));
             if (!buffer->GetName().IsEmpty())
@@ -955,7 +955,7 @@ namespace AZ::RHI
                     // Check image's cache first as that contains views provided by higher level code.
                     if (image->IsInResourceCache(imageViewDescriptor))
                     {
-                        imageView = image->BuildImageView(imageViewDescriptor).get();
+                        imageView = image->GetImageView(imageViewDescriptor).get();
                     }
                     else
                     {
@@ -993,7 +993,7 @@ namespace AZ::RHI
                     // Check buffer's cache first as that contains views provided by higher level code.
                     if (buffer->IsInResourceCache(bufferViewDescriptor))
                     {
-                        bufferView = buffer->BuildBufferView(bufferViewDescriptor).get();
+                        bufferView = buffer->GetBufferView(bufferViewDescriptor).get();
                     }
                     else
                     {

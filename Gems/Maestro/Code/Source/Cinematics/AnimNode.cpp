@@ -29,6 +29,7 @@
 #include "CaptureTrack.h"
 #include "CommentTrack.h"
 #include "ScreenFaderTrack.h"
+#include "StringTrack.h"
 #include "TimeRangesTrack.h"
 
 #include <AzCore/std/sort.h>
@@ -421,6 +422,9 @@ namespace Maestro
                 break;
             case AnimValueType::AssetBlend:
                 pTrack = aznew CAssetBlendTrack;
+                break;
+            case AnimValueType::String:
+                pTrack = aznew CStringTrack;
                 break;
             }
         }
@@ -971,9 +975,6 @@ namespace Maestro
             subTrackParamTypes[1] = AnimParamType::ColorG;
             subTrackParamTypes[2] = AnimParamType::ColorB;
             IAnimTrack* pTrack = aznew CCompoundSplineTrack(3, AnimValueType::RGB, subTrackParamTypes, false);
-            pTrack->SetSubTrackName(0, "Red");
-            pTrack->SetSubTrackName(1, "Green");
-            pTrack->SetSubTrackName(2, "Blue");
             return pTrack;
         }
 

@@ -13,9 +13,7 @@
 
 #include <AzCore/std/containers/set.h>
 
-AZ_PUSH_DISABLE_DLL_EXPORT_MEMBER_WARNING
 #include "TrackView/ui_TrackViewCurveEditor.h"
-AZ_POP_DISABLE_DLL_EXPORT_MEMBER_WARNING
 
 
 TrackViewCurveEditorDialog::TrackViewCurveEditorDialog(QWidget* parent)
@@ -23,7 +21,7 @@ TrackViewCurveEditorDialog::TrackViewCurveEditorDialog(QWidget* parent)
 {
     m_widget = new CTrackViewCurveEditor(this);
     QVBoxLayout* l = new QVBoxLayout;
-    l->setMargin(0);
+    l->setContentsMargins(0, 0, 0, 0);
     l->addWidget(m_widget);
     setLayout(l);
 }
@@ -321,11 +319,23 @@ void CTrackViewCurveEditor::OnKeysChanged([[maybe_unused]] CTrackViewSequence* p
 
 void CTrackViewCurveEditor::OnKeyAdded(CTrackViewKeyHandle& addedKeyHandle)
 {
-    EAnimCurveType trType = addedKeyHandle.GetTrack()->GetCurveType();
-    if (trType == eAnimCurveType_BezierFloat)
+    const auto pTrack = addedKeyHandle.GetTrack();
+    if (!pTrack)
     {
+        return;
+    }
+
+    EAnimCurveType trType = addedKeyHandle.GetTrack()->GetCurveType();
+    if (trType != eAnimCurveType_BezierFloat)
+    {
+        return;
+    }
+
+    auto updateKeyFlags = [](CTrackViewKeyHandle& addedKeyHandle)
+    {
+        const auto pTrack = addedKeyHandle.GetTrack();
         // we query the added key's track to find the default tangent flags to use for newly created keys
-        const int tangentFlagsForNewKeys = addedKeyHandle.GetTrack()->GetAnimNode()->GetDefaultKeyTangentFlags();
+        const int tangentFlagsForNewKeys = pTrack->GetAnimNode()->GetDefaultKeyTangentFlags();
         I2DBezierKey bezierKey;
         addedKeyHandle.GetKey(&bezierKey);
 
@@ -335,6 +345,21 @@ void CTrackViewCurveEditor::OnKeyAdded(CTrackViewKeyHandle& addedKeyHandle)
         // set tangent flags to the default tangent flags used for the track's animNode and save them
         bezierKey.flags |= tangentFlagsForNewKeys;
         addedKeyHandle.SetKey(&bezierKey);
+    };
+
+    const auto numSubTracks = pTrack->GetChildCount();
+    if (numSubTracks <= 0 || pTrack->IsSubTrack()) // Simple track owning Bezier Keys
+    {
+        updateKeyFlags(addedKeyHandle);
+        return;
+    }
+
+    // Compound track with sub-tracks owning Bezier Keys
+    for (unsigned int i = 0; i < numSubTracks; ++i)
+    {
+        const auto pSubTrack = static_cast<CTrackViewTrack*>(pTrack->GetChild(i));
+        CTrackViewKeyHandle subTrackHandle(pSubTrack, addedKeyHandle.GetIndex());
+        updateKeyFlags(subTrackHandle);
     }
 }
 

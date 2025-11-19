@@ -10,6 +10,7 @@
 #include <AzCore/Component/Component.h>
 #include <AzCore/Component/Entity.h>
 #include <AzToolsFramework/API/EntityCompositionRequestBus.h>
+#include <AzToolsFramework/AzToolsFrameworkAPI.h>
 
 namespace AzToolsFramework
 {
@@ -20,7 +21,7 @@ namespace AzToolsFramework
         *
         * Used to perform things such as add/remove components, cut/copy/paste, etc.
         */
-        class EditorEntityActionComponent
+        class AZTF_API EditorEntityActionComponent
             : public AZ::Component
             , public EntityCompositionRequestBus::Handler
         {
@@ -59,6 +60,9 @@ namespace AzToolsFramework
         private:
 
             bool RemoveComponentFromEntityAndContainers(AZ::Entity* entity, AZ::Component* componentToRemove);
+
+            // Helper function to check whether an InstanceUpdateExecutor is currently Updating Template Instances In Queue
+            bool AreInstancesUpdated() const;
 
             ScrubEntityResults ScrubEntity(AZ::Entity* entity);
 

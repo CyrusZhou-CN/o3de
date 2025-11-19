@@ -90,6 +90,8 @@ namespace Maestro
         IAnimTrack* CreateTrack(const CAnimParamType& paramType, AnimValueType remapValueType = AnimValueType::Unknown) override;
         bool RemoveTrack(IAnimTrack* pTrack) override;
 
+        void UpdateTrackDefaultValue(float time, IAnimTrack* pTrack) override;
+
         //////////////////////////////////////////////////////////////////////////
         // EditorSequenceAgentComponentNotificationBus::Handler Interface
         void OnSequenceAgentConnected() override;
@@ -157,6 +159,7 @@ namespace Maestro
             bool applyTrackMultiplier = true,
             float isChangedTolerance = AZ::Constants::Tolerance);
         int SetKeysForChangedQuaternionTrackValue(IAnimTrack* track, int keyIdx, float time);
+        int SetKeysForChangedStringTrackValue(IAnimTrack* track, int keyIdx, float time);
 
         static const float s_rgbMultiplier; // standard value for tracks' multiplier with AnimValueType::RGB 
 

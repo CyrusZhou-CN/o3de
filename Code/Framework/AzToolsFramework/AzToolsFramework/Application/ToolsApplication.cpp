@@ -88,7 +88,7 @@
 #include <Prefab/ProceduralPrefabSystemComponent.h>
 #include <AzToolsFramework/Metadata/UuidUtils.h>
 
-#include <QtWidgets/QMessageBox>
+#include <QMessageBox>
 AZ_PUSH_DISABLE_WARNING(4251, "-Wunknown-warning-option") // 4251: 'QFileInfo::d_ptr': class 'QSharedDataPointer<QFileInfoPrivate>' needs to have dll-interface to be used by clients of class 'QFileInfo'
 #include <QDir>
 AZ_POP_DISABLE_WARNING
@@ -1285,27 +1285,25 @@ namespace AzToolsFramework
 
     UndoSystem::URSequencePoint* ToolsApplication::ResumeUndoBatch(UndoSystem::URSequencePoint* expected, const char* label)
     {
-        if (m_currentBatchUndo)
+        if ((!m_undoStack) || (!expected))
         {
-            if (m_undoStack->GetTop() == m_currentBatchUndo)
-            {
-                m_undoStack->PopTop();
-            }
-
-            return m_currentBatchUndo;
+            return BeginUndoBatch(label);
         }
 
-        if (m_undoStack)
+        // if we are in an undo already, and its already the expected one, just return it.
+        UndoSystem::URSequencePoint* searchNode = m_currentBatchUndo;
+        while (searchNode)
         {
-            const auto ptr = m_undoStack->GetTop();
-            if (ptr && ptr == expected)
+            if (searchNode == expected)
             {
-                m_currentBatchUndo = ptr;
-                m_undoStack->PopTop();
-
-                return m_currentBatchUndo;
+                return searchNode;
             }
+            searchNode = searchNode->GetParent(); // walk up the tree.
         }
+
+        // note that when resuming an undo batch, we do not pop any values, this allows the node to
+        // continue adding data to nodes without creating new undos.
+        // we only create a new undo node if the one we are trying to resume is not anywhere in the current undo tree.
 
         return BeginUndoBatch(label);
     }
@@ -1333,9 +1331,14 @@ namespace AzToolsFramework
         return root->Changed() || changed;
     }
 
-    void ToolsApplication::EndUndoBatch()
+    bool ToolsApplication::EndUndoBatch()
     {
+        bool resultValue = true;
         AZ_Assert(m_currentBatchUndo, "Cannot end batch - no batch current");
+        if (!m_currentBatchUndo)
+        {
+            return false; // let's not crash just becuase there's a programmer error.
+        }
 
         if (m_currentBatchUndo->GetParent())
         {
@@ -1364,6 +1367,7 @@ namespace AzToolsFramework
             }
             else
             {
+                resultValue = false; // we discarded it because it was empty
                 delete m_currentBatchUndo;
             }
 
@@ -1372,6 +1376,7 @@ namespace AzToolsFramework
 #endif
             m_currentBatchUndo = nullptr;
         }
+        return resultValue;
     }
 
     void ToolsApplication::OnPrefabInstancePropagationBegin()

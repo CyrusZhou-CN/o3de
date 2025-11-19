@@ -228,6 +228,26 @@ namespace Maestro
         return retNumKeysSet;
     }
 
+    int CAnimComponentNode::SetKeysForChangedStringTrackValue(IAnimTrack* track, [[maybe_unused]] int keyIdx, float time)
+    {
+        int retNumKeysSet = 0;
+        AZStd::string currTrackValue;
+        track->GetValue(time, currTrackValue);
+        SequenceComponentRequests::AnimatedStringValue currValue(currTrackValue);
+        SequenceComponentRequests::AnimatablePropertyAddress animatableAddress(m_componentId, track->GetParameterType().GetName());
+        SequenceComponentRequestBus::Event(m_pSequence->GetSequenceEntityId(), &SequenceComponentRequestBus::Events::GetAnimatedPropertyValue,
+            currValue,GetParentAzEntityId(), animatableAddress);
+        AZStd::string currStringValue;
+        currValue.GetValue(currStringValue);
+
+        if (currTrackValue != currStringValue)
+        {
+            track->SetValue(time, currStringValue, false);
+            retNumKeysSet++;
+        }
+        return retNumKeysSet;
+    }
+
     int CAnimComponentNode::SetKeysForChangedTrackValues(float time)
     {
         int retNumKeysSet = 0;
@@ -258,7 +278,10 @@ namespace Maestro
                 case AnimValueType::Vector4:
                     AZ_Warning("TrackView", false, "Vector4's are not supported for recording.");
                     break;
-            }
+                case AnimValueType::String:
+                    retNumKeysSet += SetKeysForChangedStringTrackValue(track, keyIdx, time);
+                    break;
+                }
         }
 
         return retNumKeysSet;
@@ -715,11 +738,15 @@ namespace Maestro
             }
             // Special case, if an AssetId property named "Motion" is found, create an AssetBlend.
             // The Simple Motion Component exposes a virtual property named "motion" of type AssetId.
-            // We it is detected here create an AssetBlend type in Track View. The Asset Blend has special
+            // When it is detected here create an AssetBlend type in Track View. The Asset Blend has special
             // UI and will be used to drive multiple properties on this component, not just the motion AssetId.
             else if (propertyTypeId == AZ::Data::AssetId::TYPEINFO_Uuid() && 0 == azstricmp(paramType.GetName(), "motion"))
             {
                 propertyInfo.m_animNodeParamInfo.valueType = AnimValueType::AssetBlend;
+            }
+            else if (propertyTypeId == AZ::AzTypeInfo<AZStd::string>::Uuid())
+            {
+                propertyInfo.m_animNodeParamInfo.valueType = AnimValueType::String;
             }
             // the fall-through default type is propertyInfo.m_animNodeParamInfo.valueType = AnimValueType::Float
         }
@@ -834,7 +861,9 @@ namespace Maestro
                         defaultValue.GetValue(vector3Value);
                         vector3Value = vector3Value.GetClamp(AZ::Vector3::CreateZero(), AZ::Vector3::CreateOne());
 
-                        pTrack->SetValue(0, vector3Value, /*setDefault=*/ true, /*applyMultiplier=*/ true);
+                        constexpr const bool setDefault = true;
+                        constexpr const bool applyMultiplier = true;
+                        pTrack->SetValue(0, vector3Value, setDefault, applyMultiplier);
                         break;
                     }
                     case AnimValueType::Bool:
@@ -848,9 +877,21 @@ namespace Maestro
                     }
                     case AnimValueType::AssetBlend:
                     {
-                        // Just init to an empty value.
+                        // Just initialize to an empty value.
                         AssetBlends<AZ::Data::AssetData> assetData;
                         pTrack->SetValue(0, assetData, true);
+                        break;
+                    }
+                    case AnimValueType::String:
+                    {
+                        SequenceComponentRequests::AnimatedStringValue defaultValue;
+                        AZStd::string stringValue;
+                        SequenceComponentRequestBus::Event(m_pSequence->GetSequenceEntityId(), &SequenceComponentRequestBus::Events::GetAnimatedPropertyValue,
+                            defaultValue, GetParentAzEntityId(), address);
+                        defaultValue.GetValue(stringValue);
+
+                        constexpr const bool setDefault = true;
+                        pTrack->SetValue(0, stringValue, setDefault);
                         break;
                     }
                     default:
@@ -859,6 +900,94 @@ namespace Maestro
                         break;
                     }
                 }
+            }
+        }
+    }
+
+    void CAnimComponentNode::UpdateTrackDefaultValue(float time, IAnimTrack* pTrack)
+    {
+        const auto sequence = GetSequence();
+        if (!(pTrack && m_pSequence))
+        {
+            AZ_Assert(pTrack, "Invalid Track");
+            AZ_Assert(m_pSequence, "Invalid Sequence");
+            return;
+        }
+        const auto timeRange = sequence->GetTimeRange();
+        if (time < timeRange.start || time > timeRange.end)
+        {
+            AZ_Error("AnimComponentNode", false, "UpdateTrackDefaultValue(%f): time not in range (%f,%f)", time, timeRange.start, time > timeRange.end);
+            return;
+        }
+
+        const auto paramType = pTrack->GetParameterType();
+        auto findIter = m_paramTypeToBehaviorPropertyInfoMap.find(paramType);
+        if (findIter == m_paramTypeToBehaviorPropertyInfoMap.end())
+        {
+            AZ_Error("AnimComponentNode", false, "UpdateTrackDefaultValue(): Parameter type %s not reflected", paramType.GetName());
+            return;
+        }
+
+        BehaviorPropertyInfo& propertyInfo = findIter->second;
+        SequenceComponentRequests::AnimatablePropertyAddress address(m_componentId, propertyInfo.m_animNodeParamInfo.name);
+
+        constexpr const bool setDefault = true;
+        switch (pTrack->GetValueType())
+        {
+        case AnimValueType::Float:
+            {
+                SequenceComponentRequests::AnimatedFloatValue defaultValue(0.0f);
+                SequenceComponentRequestBus::Event(m_pSequence->GetSequenceEntityId(),&SequenceComponentRequestBus::Events::GetAnimatedPropertyValue,
+                    defaultValue, GetParentAzEntityId(), address);
+                pTrack->SetValue(time, defaultValue.GetFloatValue(), setDefault);
+                break;
+            }
+        case AnimValueType::Vector:
+            {
+                SequenceComponentRequests::AnimatedVector3Value defaultValue(AZ::Vector3::CreateZero());
+                AZ::Vector3 vector3Value = AZ::Vector3::CreateZero();
+                SequenceComponentRequestBus::Event( m_pSequence->GetSequenceEntityId(), &SequenceComponentRequestBus::Events::GetAnimatedPropertyValue,
+                    defaultValue, GetParentAzEntityId(), address);
+                defaultValue.GetValue(vector3Value);
+                pTrack->SetValue(time, vector3Value, setDefault);
+                break;
+            }
+        case AnimValueType::Quat:
+            {
+                SequenceComponentRequests::AnimatedQuaternionValue defaultValue(AZ::Quaternion::CreateIdentity());
+                SequenceComponentRequestBus::Event( m_pSequence->GetSequenceEntityId(), &SequenceComponentRequestBus::Events::GetAnimatedPropertyValue,
+                    defaultValue, GetParentAzEntityId(), address);
+                pTrack->SetValue(time, defaultValue.GetQuaternionValue(), setDefault);
+                break;
+            }
+        case AnimValueType::RGB:
+            {
+                SequenceComponentRequests::AnimatedVector3Value defaultValue(AZ::Vector3::CreateOne());
+                AZ::Vector3 vector3Value = AZ::Vector3::CreateOne();
+                SequenceComponentRequestBus::Event( m_pSequence->GetSequenceEntityId(), &SequenceComponentRequestBus::Events::GetAnimatedPropertyValue,
+                    defaultValue, GetParentAzEntityId(), address);
+                defaultValue.GetValue(vector3Value);
+                vector3Value = vector3Value.GetClamp(AZ::Vector3::CreateZero(), AZ::Vector3::CreateOne());
+                constexpr const bool applyMultiplier = true;
+                pTrack->SetValue(0, vector3Value, setDefault, applyMultiplier);
+                break;
+            }
+        case AnimValueType::Bool:
+            {
+                break; // Change nothing
+            }
+        case AnimValueType::AssetBlend:
+            {
+                break; // Change nothing
+            }
+        case AnimValueType::String:
+            {
+                break; // Change nothing
+            }
+        default:
+            {
+                AZ_Warning( "AnimComponentNode", false, "UpdateTrackDefaultValue(): Unsupported value type %s, skipping...", paramType.GetName());
+                break;
             }
         }
     }
@@ -975,10 +1104,15 @@ namespace Maestro
                                 AZ::Vector3 vector3PrevValue;
                                 prevValue.GetValue(vector3PrevValue);
 
-                                // Check sub-tracks for keys. If there are none, use the prevValue for that track (essentially making a non-keyed track a no-op)
-                                vec.Set(pTrack->GetSubTrack(0)->HasKeys() ? vec.GetX() : vector3PrevValue.GetX(),
-                                    pTrack->GetSubTrack(1)->HasKeys() ? vec.GetY() : vector3PrevValue.GetY(),
-                                    pTrack->GetSubTrack(2)->HasKeys() ? vec.GetZ() : vector3PrevValue.GetZ());
+                                // Check sub-tracks for keys and for enabled state.
+                                // If there are no keys in a sub-track, or sub-track is disabled, use the prevValue for that sub-track,
+                                // thus essentially making a non-keyed track or disabled track a no-op.
+                                for (int i = 0; i < 3; ++i)
+                                {
+                                    const auto valueIsValid = pTrack->GetSubTrack(i) && pTrack->GetSubTrack(i)->HasKeys() &&
+                                        (pTrack->GetSubTrack(i)->GetFlags() & IAnimTrack::eAnimTrackFlags_Disabled) == 0;
+                                    vec.SetElement(i, valueIsValid ? vec.GetElement(i) : vector3PrevValue.GetElement(i));
+                                }
                                 value.SetValue(vec);
 
                                 if (!value.IsClose(prevValue, tolerance))
@@ -990,23 +1124,41 @@ namespace Maestro
                             }
                             case AnimValueType::Quat:
                             {
-                                if (pTrack->HasKeys())
+                                AZ::Quaternion quaternionValue(AZ::Quaternion::CreateIdentity());
+                                pTrack->GetValue(ac.time, quaternionValue);
+                                SequenceComponentRequests::AnimatedQuaternionValue prevValue(quaternionValue);
+                                SequenceComponentRequestBus::Event(m_pSequence->GetSequenceEntityId(), &SequenceComponentRequestBus::Events::GetAnimatedPropertyValue, prevValue, GetParentAzEntityId(), animatableAddress);
+                                AZ::Quaternion prevQuaternionValue;
+                                prevValue.GetValue(prevQuaternionValue);
+
+                                // Check sub-tracks for keys and for enabled state.
+                                // If there are no keys in a sub-track, or sub-track is disabled, use the prevValue for that sub-track,
+                                // thus essentially making a non-keyed track or disabled track a no-op.
+                                // Note that sub-tracks store 3 Tait-Bryan rotation angles in degrees, with ZYX order of conversion.
+                                AZ::Vector3 degreesRotation;
+                                pTrack->GetValue(ac.time, degreesRotation);
+                                AZ::Vector3 degreesRotationPrev = prevQuaternionValue.GetEulerDegreesZYX();
+                                bool needToRecalc = false; 
+                                for (int i = 0; i < 3; ++i)
                                 {
-                                    float tolerance = AZ::Constants::FloatEpsilon;
-
-                                    AZ::Quaternion quaternionValue(AZ::Quaternion::CreateIdentity());
-                                    pTrack->GetValue(ac.time, quaternionValue);
-                                    SequenceComponentRequests::AnimatedQuaternionValue value(quaternionValue);
-                                    SequenceComponentRequests::AnimatedQuaternionValue prevValue(quaternionValue);
-                                    SequenceComponentRequestBus::Event(m_pSequence->GetSequenceEntityId(), &SequenceComponentRequestBus::Events::GetAnimatedPropertyValue, prevValue, GetParentAzEntityId(), animatableAddress);
-                                    AZ::Quaternion prevQuaternionValue;
-                                    prevValue.GetValue(prevQuaternionValue);
-
-                                    if (!prevQuaternionValue.IsClose(quaternionValue, tolerance))
+                                    const auto valueIsValid = pTrack->GetSubTrack(i) && pTrack->GetSubTrack(i)->HasKeys() &&
+                                        (pTrack->GetSubTrack(i)->GetFlags() & IAnimTrack::eAnimTrackFlags_Disabled) == 0;
+                                    if (!valueIsValid)
                                     {
-                                        // only set the value if it's changed
-                                        SequenceComponentRequestBus::Event(m_pSequence->GetSequenceEntityId(), &SequenceComponentRequestBus::Events::SetAnimatedPropertyValue, GetParentAzEntityId(), animatableAddress, value);
+                                        degreesRotation.SetElement(i, degreesRotationPrev.GetElement(i));
+                                        needToRecalc = true;
                                     }
+                                }
+                                if (needToRecalc)
+                                {
+                                    quaternionValue = AZ::Quaternion::CreateFromEulerDegreesZYX(degreesRotation);
+                                }
+
+                                if (!prevQuaternionValue.IsClose(quaternionValue, AZ::Constants::FloatEpsilon))
+                                {
+                                    // only set the value if it's changed
+                                    SequenceComponentRequests::AnimatedQuaternionValue value(quaternionValue);
+                                    SequenceComponentRequestBus::Event(m_pSequence->GetSequenceEntityId(), &SequenceComponentRequestBus::Events::SetAnimatedPropertyValue, GetParentAzEntityId(), animatableAddress, value);
                                 }
                                 break;
                             }
@@ -1039,6 +1191,34 @@ namespace Maestro
                                 }
                                 break;
                             }
+                            case AnimValueType::String:
+                            {
+                                AZStd::string str;
+                                pTrack->GetValue(ac.time, str);
+
+                                SequenceComponentRequests::AnimatedStringValue value(str);
+                                SequenceComponentRequests::AnimatedStringValue prevValue(str);
+                                bool wasInvoked = false;
+                                const AZ::EntityId& sequenceEntityId = m_pSequence->GetSequenceEntityId();
+                                SequenceComponentRequestBus::EventResult(wasInvoked, sequenceEntityId, &SequenceComponentRequestBus::Events::GetAnimatedPropertyValue,
+                                    prevValue, GetParentAzEntityId(), animatableAddress);
+
+                                if (!wasInvoked)
+                                {
+                                    AZ_Trace("CAnimComponentNode::Animate", "GetAnimatedPropertyValue failed for %s", sequenceEntityId.ToString().c_str());
+                                }
+
+                                AZStd::string stringPrevValue;
+                                prevValue.GetValue(stringPrevValue);
+
+                                if (!value.IsClose(prevValue))
+                                {
+                                    // only set the value if it's changed
+                                    SequenceComponentRequestBus::Event(m_pSequence->GetSequenceEntityId(), &SequenceComponentRequestBus::Events::SetAnimatedPropertyValue,
+                                        GetParentAzEntityId(), animatableAddress, value);
+                                }
+                                break;
+                            }
                             default:
                             {
                                 AZ_Warning("TrackView", false, "Unsupported value type %d requested for Component Node Track %s, skipping...", pTrack->GetValueType(), paramType.GetName());
@@ -1060,27 +1240,30 @@ namespace Maestro
 
     void CAnimComponentNode::AnimateAssetBlendSubProperties(const AssetBlends<AZ::Data::AssetData>& assetBlendValue)
     {
-        // These are the params to set for the Simple Motion Component
-        bool previewInEditor = true;
-        float playTime = 0.0f;
-        float playSpeed = 0.0f;
-        AZ::Data::AssetId assetId;
-        float blendInTime = 0.0f;
-        float blendOutTime = 0.0f;
 
-        // Populate params based on the last AssetBlend found.
-        // So new keys will be picked up and played on top of currently
-        // playing animations (resulting in a blend).
-        if (assetBlendValue.m_assetBlends.size() > 0)
+        if (assetBlendValue.m_assetBlends.size() < 1)
         {
-            AssetBlend assetData = assetBlendValue.m_assetBlends.back();
-            playTime = assetData.m_time;
-            assetId = assetData.m_assetId;
-            blendInTime = assetData.m_blendInTime;
-            blendOutTime = assetData.m_blendOutTime;
+            return; // Nothing to do
+        }
+
+        // Populate params based on the last valid AssetBlend found.
+        // So new keys will be picked up and played on top of currently playing animations (resulting in a blend).
+        AssetBlend assetData;
+        for (auto it = assetBlendValue.m_assetBlends.begin(); it != assetBlendValue.m_assetBlends.end(); ++it)
+        {
+            if (it->m_assetId.IsValid())
+            {
+                assetData = *it;
+            }
+        }
+
+        if (!assetData.m_assetId.IsValid())
+        {
+            return; // Invalid key without motion assets assigned
         }
 
         // Set Preview in Editor
+        constexpr const bool previewInEditor = true;
         SequenceComponentRequests::AnimatablePropertyAddress previewInEditorAnimatableAddress(m_componentId, "PreviewInEditor");
         SequenceComponentRequests::AnimatedFloatValue prevPreviewInEditorValue(previewInEditor);
         SequenceComponentRequestBus::Event(m_pSequence->GetSequenceEntityId(), &SequenceComponentRequestBus::Events::GetAnimatedPropertyValue, prevPreviewInEditorValue, GetParentAzEntityId(), previewInEditorAnimatableAddress);
@@ -1092,52 +1275,63 @@ namespace Maestro
 
         // Set Blend In Time before Motion so the Blend In will be used on the Motion that is about to Play.
         SequenceComponentRequests::AnimatablePropertyAddress blendInTimeAnimatableAddress(m_componentId, "BlendInTime");
-        SequenceComponentRequests::AnimatedFloatValue prevBlendInTimeValue(blendInTime);
+        SequenceComponentRequests::AnimatedFloatValue prevBlendInTimeValue(assetData.m_blendInTime);
         SequenceComponentRequestBus::Event(m_pSequence->GetSequenceEntityId(), &SequenceComponentRequestBus::Events::GetAnimatedPropertyValue, prevBlendInTimeValue, GetParentAzEntityId(), blendInTimeAnimatableAddress);
-        SequenceComponentRequests::AnimatedFloatValue blendInTimeValue(blendInTime);
+        SequenceComponentRequests::AnimatedFloatValue blendInTimeValue(assetData.m_blendInTime);
         if (!blendInTimeValue.IsClose(prevBlendInTimeValue))
         {
             SequenceComponentRequestBus::Event(m_pSequence->GetSequenceEntityId(), &SequenceComponentRequestBus::Events::SetAnimatedPropertyValue, GetParentAzEntityId(), blendInTimeAnimatableAddress, blendInTimeValue);
         }
 
-        // Set Motion
-        SequenceComponentRequests::AnimatablePropertyAddress motionAnimatableAddress(m_componentId, "Motion");
-        SequenceComponentRequests::AnimatedAssetIdValue prevMotionValue(assetId);
-        SequenceComponentRequestBus::Event(m_pSequence->GetSequenceEntityId(), &SequenceComponentRequestBus::Events::GetAnimatedPropertyValue, prevMotionValue, GetParentAzEntityId(), motionAnimatableAddress);
-        SequenceComponentRequests::AnimatedAssetIdValue motionValue(assetId);
-        if (!motionValue.IsClose(prevMotionValue))
-        {
-            SequenceComponentRequestBus::Event(m_pSequence->GetSequenceEntityId(), &SequenceComponentRequestBus::Events::SetAnimatedPropertyValue, GetParentAzEntityId(), motionAnimatableAddress, motionValue);
-        }
-
         // Set Blend Out Time after Motion so the Blend Out will not be used on Play, but instead used on that 'last' Motion 'Stop' as fade out.
         SequenceComponentRequests::AnimatablePropertyAddress blendOutTimeAnimatableAddress(m_componentId, "BlendOutTime");
-        SequenceComponentRequests::AnimatedFloatValue prevBlendOutTimeValue(blendOutTime);
+        SequenceComponentRequests::AnimatedFloatValue prevBlendOutTimeValue(assetData.m_blendOutTime);
         SequenceComponentRequestBus::Event(m_pSequence->GetSequenceEntityId(), &SequenceComponentRequestBus::Events::GetAnimatedPropertyValue, prevBlendOutTimeValue, GetParentAzEntityId(), blendOutTimeAnimatableAddress);
-        SequenceComponentRequests::AnimatedFloatValue blendOutTimeValue(blendOutTime);
+        SequenceComponentRequests::AnimatedFloatValue blendOutTimeValue(assetData.m_blendOutTime);
         if (!blendOutTimeValue.IsClose(prevBlendOutTimeValue))
         {
             SequenceComponentRequestBus::Event(m_pSequence->GetSequenceEntityId(), &SequenceComponentRequestBus::Events::SetAnimatedPropertyValue, GetParentAzEntityId(), blendOutTimeAnimatableAddress, blendOutTimeValue);
         }
 
+        // Set Play Speed
+        SequenceComponentRequests::AnimatablePropertyAddress playSpeedAnimatableAddress(m_componentId, "PlaySpeed");
+        SequenceComponentRequests::AnimatedFloatValue prevPlaySpeedValue(assetData.m_speed);
+        SequenceComponentRequestBus::Event(m_pSequence->GetSequenceEntityId(), &SequenceComponentRequestBus::Events::GetAnimatedPropertyValue, prevPlaySpeedValue, GetParentAzEntityId(), playSpeedAnimatableAddress);
+        SequenceComponentRequests::AnimatedFloatValue playSpeedValue(assetData.m_speed);
+        if (!playSpeedValue.IsClose(prevPlaySpeedValue))
+        {
+            SequenceComponentRequestBus::Event(m_pSequence->GetSequenceEntityId(), &SequenceComponentRequestBus::Events::SetAnimatedPropertyValue, GetParentAzEntityId(), playSpeedAnimatableAddress, playSpeedValue);
+        }
+
+        // Set Loop
+        SequenceComponentRequests::AnimatablePropertyAddress loopAnimatableAddress(m_componentId, "LoopMotion");
+        SequenceComponentRequests::AnimatedBoolValue prevLoopValue(assetData.m_bLoop);
+        SequenceComponentRequestBus::Event(m_pSequence->GetSequenceEntityId(), &SequenceComponentRequestBus::Events::GetAnimatedPropertyValue, prevLoopValue, GetParentAzEntityId(), loopAnimatableAddress);
+        SequenceComponentRequests::AnimatedBoolValue loopValue(assetData.m_bLoop);
+        if (!loopValue.IsClose(prevLoopValue))
+        {
+            SequenceComponentRequestBus::Event(m_pSequence->GetSequenceEntityId(), &SequenceComponentRequestBus::Events::SetAnimatedPropertyValue, GetParentAzEntityId(), loopAnimatableAddress, loopValue);
+        }
+
         // Set Play Time
         SequenceComponentRequests::AnimatablePropertyAddress playTimeAnimatableAddress(m_componentId, "PlayTime");
-        SequenceComponentRequests::AnimatedFloatValue prevPlayTimeValue(playTime);
+        SequenceComponentRequests::AnimatedFloatValue prevPlayTimeValue(assetData.m_time);
         SequenceComponentRequestBus::Event(m_pSequence->GetSequenceEntityId(), &SequenceComponentRequestBus::Events::GetAnimatedPropertyValue, prevPlayTimeValue, GetParentAzEntityId(), playTimeAnimatableAddress);
-        SequenceComponentRequests::AnimatedFloatValue playTimeValue(playTime);
+        SequenceComponentRequests::AnimatedFloatValue playTimeValue(assetData.m_time);
         if (!playTimeValue.IsClose(prevPlayTimeValue))
         {
             SequenceComponentRequestBus::Event(m_pSequence->GetSequenceEntityId(), &SequenceComponentRequestBus::Events::SetAnimatedPropertyValue, GetParentAzEntityId(), playTimeAnimatableAddress, playTimeValue);
         }
 
-        // Set Play Speed
-        SequenceComponentRequests::AnimatablePropertyAddress playSpeedAnimatableAddress(m_componentId, "PlaySpeed");
-        SequenceComponentRequests::AnimatedFloatValue prevPlaySpeedValue(playSpeed);
-        SequenceComponentRequestBus::Event(m_pSequence->GetSequenceEntityId(), &SequenceComponentRequestBus::Events::GetAnimatedPropertyValue, prevPlaySpeedValue, GetParentAzEntityId(), playSpeedAnimatableAddress);
-        SequenceComponentRequests::AnimatedFloatValue playSpeedValue(playSpeed);
-        if (!playSpeedValue.IsClose(prevPlaySpeedValue))
+        // Set Motion
+        SequenceComponentRequests::AnimatablePropertyAddress motionAnimatableAddress(m_componentId, "Motion");
+        SequenceComponentRequests::AnimatedAssetIdValue prevMotionValue(assetData.m_assetId);
+        SequenceComponentRequestBus::Event(m_pSequence->GetSequenceEntityId(), &SequenceComponentRequestBus::Events::GetAnimatedPropertyValue, prevMotionValue, GetParentAzEntityId(), motionAnimatableAddress);
+        SequenceComponentRequests::AnimatedAssetIdValue motionValue(assetData.m_assetId);
+        if (!motionValue.IsClose(prevMotionValue))
         {
-            SequenceComponentRequestBus::Event(m_pSequence->GetSequenceEntityId(), &SequenceComponentRequestBus::Events::SetAnimatedPropertyValue, GetParentAzEntityId(), playSpeedAnimatableAddress, playSpeedValue);
+            // This woill create a new motion instance and play it
+            SequenceComponentRequestBus::Event(m_pSequence->GetSequenceEntityId(), &SequenceComponentRequestBus::Events::SetAnimatedPropertyValue, GetParentAzEntityId(), motionAnimatableAddress, motionValue);
         }
     }
 

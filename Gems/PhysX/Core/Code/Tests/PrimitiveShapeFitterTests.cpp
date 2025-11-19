@@ -78,22 +78,6 @@ namespace PhysX::Pipeline
         ExpectNear(zAxis, xAxis.Cross(yAxis), defaultTolerance);
     }
 
-    static AZStd::vector<Vec3> AZVerticesToLYVertices(const AZStd::vector<AZ::Vector3>& vertices)
-    {
-        AZStd::vector<Vec3> converted(vertices.size(), Vec3(ZERO));
-
-        AZStd::transform(
-            vertices.begin(),
-            vertices.end(),
-            converted.begin(),
-            [] (const AZ::Vector3& vertex) {
-                return AZVec3ToLYVec3(vertex);
-            }
-        );
-
-        return converted;
-    }
-
     template<size_t N>
     static AZStd::vector<AZ::Vector3> TransformVertices(
         const AZStd::array<AZ::Vector3, N>& vertices,
@@ -415,10 +399,10 @@ namespace PhysX::Pipeline
         // Validate transform.
         ASSERT_THAT(configPtr, ::testing::NotNull());
         ASSERT_TRUE(configPtr->m_transform.has_value());
-        ExpectNear(configPtr->m_transform->GetTranslation(), AZ::Vector3(1.0, 2.0, 3.0));
-        ExpectNear(configPtr->m_transform->GetBasisX(), AZ::Vector3(0.8660254038, 0.0, -0.5));
-        ExpectNear(configPtr->m_transform->GetBasisY(), AZ::Vector3(0.0, 1.0, 0.0));
-        ExpectNear(configPtr->m_transform->GetBasisZ(), AZ::Vector3(0.5, 0.0, 0.8660254038));
+        ExpectNear(configPtr->m_transform->GetTranslation(), AZ::Vector3(1.0f, 2.0f, 3.0f));
+        ExpectNear(configPtr->m_transform->GetBasisX(), AZ::Vector3(0.8660254038f, 0.0f, -0.5f));
+        ExpectNear(configPtr->m_transform->GetBasisY(), AZ::Vector3(0.0f, 1.0f, 0.0f));
+        ExpectNear(configPtr->m_transform->GetBasisZ(), AZ::Vector3(0.5f, 0.0f, 0.8660254038f));
     }
 
     TEST(GetShapeConfigurationTestFixture, SimpleCapsuleTest)
@@ -431,8 +415,8 @@ namespace PhysX::Pipeline
         // Validate shape.
         ASSERT_THAT(shapePtr, ::testing::NotNull());
         ASSERT_TRUE(shapePtr->GetShapeType() == Physics::ShapeType::Capsule);
-        EXPECT_NEAR(static_cast<const Physics::CapsuleShapeConfiguration&>(*shapePtr).m_height, 6.0, defaultTolerance);
-        EXPECT_NEAR(static_cast<const Physics::CapsuleShapeConfiguration&>(*shapePtr).m_radius, 1.0, defaultTolerance);
+        EXPECT_NEAR(static_cast<const Physics::CapsuleShapeConfiguration&>(*shapePtr).m_height, 6.0f, defaultTolerance);
+        EXPECT_NEAR(static_cast<const Physics::CapsuleShapeConfiguration&>(*shapePtr).m_radius, 1.0f, defaultTolerance);
 
         // Validate transform.
         ASSERT_THAT(configPtr, ::testing::NotNull());
@@ -440,7 +424,7 @@ namespace PhysX::Pipeline
         ExpectNear(configPtr->m_transform->GetTranslation(), AZ::Vector3::CreateZero());
 
         // For capsules, the z-axis is the primary axis.
-        ExpectNear(configPtr->m_transform->GetBasisZ(), AZ::Vector3(1.0, 0.0, 0.0));
+        ExpectNear(configPtr->m_transform->GetBasisZ(), AZ::Vector3(1.0f, 0.0f, 0.0f));
     }
 
     TEST(GetShapeConfigurationTestFixture, TransformedCapsuleTest)
@@ -453,16 +437,16 @@ namespace PhysX::Pipeline
         // Validate shape.
         ASSERT_THAT(shapePtr, ::testing::NotNull());
         ASSERT_TRUE(shapePtr->GetShapeType() == Physics::ShapeType::Capsule);
-        EXPECT_NEAR(static_cast<const Physics::CapsuleShapeConfiguration&>(*shapePtr).m_height, 6.0, defaultTolerance);
-        EXPECT_NEAR(static_cast<const Physics::CapsuleShapeConfiguration&>(*shapePtr).m_radius, 1.0, defaultTolerance);
+        EXPECT_NEAR(static_cast<const Physics::CapsuleShapeConfiguration&>(*shapePtr).m_height, 6.0f, defaultTolerance);
+        EXPECT_NEAR(static_cast<const Physics::CapsuleShapeConfiguration&>(*shapePtr).m_radius, 1.0f, defaultTolerance);
 
         // Validate transform.
         ASSERT_THAT(configPtr, ::testing::NotNull());
         ASSERT_TRUE(configPtr->m_transform.has_value());
-        ExpectNear(configPtr->m_transform->GetTranslation(), AZ::Vector3(1.0, 2.0, 3.0));
+        ExpectNear(configPtr->m_transform->GetTranslation(), AZ::Vector3(1.0f, 2.0f, 3.0f));
 
         // For capsules, the z-axis is the primary axis.
-        ExpectNear(configPtr->m_transform->GetBasisZ(), AZ::Vector3(0.8660254038, 0.0, -0.5));
+        ExpectNear(configPtr->m_transform->GetBasisZ(), AZ::Vector3(0.8660254038f, 0.0f, -0.5f));
     }
 
 
@@ -499,7 +483,7 @@ namespace PhysX::Pipeline
 
         MeshAssetData::ShapeConfigurationPair pair = FitPrimitiveShape(
             "sphere",
-            AZVerticesToLYVertices(TransformVertices(SphereVertices, transform)),
+            TransformVertices(SphereVertices, transform),
             0.0,
             PrimitiveShapeTarget::Sphere
         );
@@ -529,7 +513,7 @@ namespace PhysX::Pipeline
 
         MeshAssetData::ShapeConfigurationPair pair = FitPrimitiveShape(
             "box",
-            AZVerticesToLYVertices(TransformVertices(BoxVertices, transform)),
+            TransformVertices(BoxVertices, transform),
             0.0,
             PrimitiveShapeTarget::Box
         );
@@ -567,7 +551,7 @@ namespace PhysX::Pipeline
 
         MeshAssetData::ShapeConfigurationPair pair = FitPrimitiveShape(
             "capsule",
-            AZVerticesToLYVertices(TransformVertices(CapsuleVertices, transform)),
+            TransformVertices(CapsuleVertices, transform),
             0.0,
             PrimitiveShapeTarget::Capsule
         );
@@ -608,7 +592,7 @@ namespace PhysX::Pipeline
 
         MeshAssetData::ShapeConfigurationPair pair = FitPrimitiveShape(
             "minimal",
-            AZVerticesToLYVertices(expectedVertices),
+            expectedVertices,
             5.0e-4,
             PrimitiveShapeTarget::BestFit
         );

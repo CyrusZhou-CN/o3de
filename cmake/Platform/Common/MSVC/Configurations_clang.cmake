@@ -8,6 +8,37 @@
 
 include(cmake/Platform/Common/Configurations_common.cmake)
 
+# Exceptions are disabled by default.  Use this to turn them on just for a specific target.
+# MSVC-Clang uses MSVC compiler option syntax (so /EHsc instead of -fexceptions)
+set(O3DE_COMPILE_OPTION_ENABLE_EXCEPTIONS PUBLIC /EHsc)
+
+# O3DE Sets visibility to hidden by default, requiring explicit export on non-windows platforms
+# But on MSVC or MS-Clang, these compilers use MSVC compiler options and behavior, which means
+# it is not necessary to set visibility to hidden as on MSVC, things behave similar to if
+# hidden by default.  As such, there is no need to change compile options for 3rd Party Libraries
+# to cause them to export symbols.  This is thus blank
+set(O3DE_COMPILE_OPTION_EXPORT_SYMBOLS "")
+
+# By default, O3DE sets warning level 4 and sets warnings as errors.  If you're pulling in
+# external code (from 3rd Party libraries) you can't really control whether they generate
+# warnings or not, and its usually out of scope to fix them.  Add this compile option to 
+# those 3rd Party targets ONLY.
+set(O3DE_COMPILE_OPTION_DISABLE_WARNINGS PRIVATE /W0)
+
+# C++20 no longer allows to implicitly convert between enum values of different types or enum values and integral types.
+# This is problematic if 3rd-party libraries use such operations in header files.
+set(O3DE_COMPILE_OPTION_DISABLE_DEPRECATED_ENUM_ENUM_CONVERSION PRIVATE /Wv:18)
+
+# If (USE_FAST_MATH) is set, then enable fast math optimizations.
+# Some targets might need to disable fast math individually (likely 3rd Party libraries)
+# so this flag is provided to use them in a platform independent manner
+set(O3DE_COMPILE_OPTION_ENABLE_FAST_MATH /fp:fast)
+set(O3DE_COMPILE_OPTION_DISABLE_FAST_MATH /fp:precise)
+
+# Same as above, but to use inside set_target_properties for specific targets
+set(O3DE_TARGET_COMPILE_OPTION_ENABLE_FAST_MATH PRIVATE ${O3DE_COMPILE_OPTION_ENABLE_FAST_MATH})
+set(O3DE_TARGET_COMPILE_OPTION_DISABLE_FAST_MATH PRIVATE ${O3DE_COMPILE_OPTION_DISABLE_FAST_MATH})
+
 ly_append_configurations_options(
     DEFINES_PROFILE
         _FORTIFY_SOURCE=2
@@ -30,7 +61,6 @@ ly_append_configurations_options(
         -Wno-unknown-argument
 
         
-        /fp:fast        # allows the compiler to reorder, combine, or simplify floating-point operations to optimize floating-point code for speed and space
         /Gd             # Use _cdecl calling convention for all functions
         /MP             # Multicore compilation in Visual Studio
         /nologo         # Suppress Copyright and version number message

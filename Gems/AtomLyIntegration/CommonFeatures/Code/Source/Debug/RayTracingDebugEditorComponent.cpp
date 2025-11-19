@@ -38,7 +38,9 @@ namespace AZ::Render
                     ->ClassElement(Edit::ClassElements::EditorData, "")
                         ->Attribute(Edit::Attributes::AutoExpand, true)
                     ->DataElement(Edit::UIHandlers::Default, &RayTracingDebugComponentController::m_configuration, "Configuration", "")
-                        ->Attribute(Edit::Attributes::Visibility, Edit::PropertyVisibility::ShowChildrenOnly)
+                        ->Attribute(Edit::Attributes::Visibility, &RayTracingDebugComponentController::IsRayTracingSupported)
+                    ->UIElement(Edit::UIHandlers::LineEdit, "Ray Tracing is not supported on this device.")
+                        ->Attribute(Edit::Attributes::Visibility, &RayTracingDebugComponentController::IsRayTracingNotSupported)
                 ;
 
                 editContext->Class<RayTracingDebugComponentConfig>("RayTracingDebugComponentConfig", "")
@@ -48,10 +50,12 @@ namespace AZ::Render
                     ->DataElement(Edit::UIHandlers::ComboBox, &RayTracingDebugComponentConfig::m_debugViewMode, "View mode", "What property to output to the view")
                         ->EnumAttribute(RayTracingDebugViewMode::InstanceIndex, "Instance Index")
                         ->EnumAttribute(RayTracingDebugViewMode::InstanceID, "Instance ID")
+                        ->EnumAttribute(RayTracingDebugViewMode::ClusterID, "Cluster ID")
                         ->EnumAttribute(RayTracingDebugViewMode::PrimitiveIndex, "Primitive Index")
                         ->EnumAttribute(RayTracingDebugViewMode::Barycentrics, "Barycentric Coordinates")
                         ->EnumAttribute(RayTracingDebugViewMode::Normals, "Normals")
                         ->EnumAttribute(RayTracingDebugViewMode::UVs, "UV Coordinates")
+                        ->EnumAttribute(RayTracingDebugViewMode::BaseColor, "Material Base Color")
                         ->Attribute(AZ::Edit::Attributes::ChangeNotify, Edit::PropertyRefreshLevels::ValuesOnly)
                         ->Attribute(Edit::Attributes::Visibility, &RayTracingDebugComponentConfig::GetEnabled)
                 ;

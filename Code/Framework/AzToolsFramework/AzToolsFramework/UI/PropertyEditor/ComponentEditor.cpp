@@ -38,7 +38,7 @@ AZ_PUSH_DISABLE_WARNING(4251 4244, "-Wunknown-warning-option") // 4251: 'QInputE
                                                                // 4244: 'return': conversion from 'qreal' to 'int', possible loss of data
 #include <QContextMenuEvent>
 AZ_POP_DISABLE_WARNING
-#include <QtWidgets/QApplication>
+#include <QApplication>
 #include <AzToolsFramework/Viewport/ViewportMessages.h>
 
 namespace AzToolsFramework
@@ -470,6 +470,11 @@ namespace AzToolsFramework
 
     bool ComponentEditor::AreAnyComponentsDisabled() const
     {
+        if (m_preventDataAccess) // are we during some sort of full ui rebuild?
+        {
+            return false;
+        }
+
         for (auto component : m_components)
         {
             auto entity = component->GetEntity();
@@ -605,6 +610,11 @@ namespace AzToolsFramework
 
     void ComponentEditor::QueuePropertyEditorInvalidationForComponent(AZ::EntityComponentIdPair entityComponentIdPair, PropertyModificationRefreshLevel refreshLevel)
     {
+        if (m_preventDataAccess) // are we during some sort of full ui rebuild?
+        {
+            return;
+        }
+
         for (const auto component : m_components)
         {
             if ((component->GetId() == entityComponentIdPair.GetComponentId()) 
@@ -623,6 +633,7 @@ namespace AzToolsFramework
 
     void ComponentEditor::PreventRefresh(bool shouldPrevent)
     {
+        m_preventDataAccess = shouldPrevent;
         GetPropertyEditor()->PreventDataAccess(shouldPrevent);
     }
 
@@ -979,6 +990,11 @@ namespace AzToolsFramework
 
     bool ComponentEditor::HasComponentWithId(AZ::ComponentId componentId)
     {
+        if (m_preventDataAccess) // are we during some sort of full ui rebuild?
+        {
+            return false;
+        }
+
         for (AZ::Component* component : m_components)
         {
             if (component->GetId() == componentId)
