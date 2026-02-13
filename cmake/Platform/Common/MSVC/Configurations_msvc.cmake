@@ -48,7 +48,6 @@ endif()
 
 include(cmake/Platform/Common/Configurations_common.cmake)
 include(cmake/Platform/Common/MSVC/VisualStudio_common.cmake)
-include(cmake/Platform/Common/MSVC/CompilerCache_msvc.cmake)
 
 # Verify that it wasn't invoked with an unsupported target/host architecture. Currently only supports x64/x64
 if(CMAKE_VS_PLATFORM_NAME AND NOT CMAKE_VS_PLATFORM_NAME STREQUAL "x64")
@@ -62,6 +61,7 @@ ly_append_configurations_options(
     DEFINES
         _ENABLE_EXTENDED_ALIGNED_STORAGE # Enables support for extended alignment for the MSVC std::aligned_storage class
         _SILENCE_STDEXT_ARR_ITERS_DEPRECATION_WARNING # Prevents triggering of STL4043 when checked iterators are used in 3rdParty libraries(QT and AWSNativeSDK)
+
     COMPILATION
         /Gd             # Use _cdecl calling convention for all functions
         /MP             # Multicore compilation in Visual Studio
@@ -99,7 +99,7 @@ ly_append_configurations_options(
         /we5032 # detected #pragma warning(push) with no corresponding #pragma warning(pop)
         /we5233 # explicit lambda capture 'identifier' is not used
 
-        /Zc:forScope    # Force Conformance in for Loop Scope
+        /Zc:forScope    # Force conformance in for loop scope
         /diagnostics:caret # Compiler diagnostic options: includes the column where the issue was found and places a caret (^) under the location in the line of code where the issue was detected.
         /Zc:__cplusplus
         /Zc:lambda      # Use the new lambda processor (See https://developercommunity.visualstudio.com/t/A-lambda-that-binds-the-this-pointer-w/1467873 for more details)
@@ -125,50 +125,20 @@ ly_append_configurations_options(
         /Ot             # Favor fast code over small code
         /Oi             # Use Intrinsic Functions
         /Oy             # Omit the frame pointer
+
     LINK
-        /NOLOGO             # Suppress Copyright and version number message
-        /IGNORE:4099        # 3rdParty linking produces noise with LNK4099
+        /nologo             # Suppress Copyright and version number message
+        /ignore:4099        # 3rdParty linking produces noise with LNK4099
     LINK_NON_STATIC_PROFILE
-        /OPT:REF            # Eliminates functions and data that are never referenced
-        /OPT:ICF            # Perform identical COMDAT folding. Redundant COMDATs can be removed from the linker output
-        /INCREMENTAL:NO
-        /DEBUG              # Generate pdbs
+        /opt:ref            # Eliminates functions and data that are never referenced
+        /opt:icf            # Perform identical COMDAT folding. Redundant COMDATs can be removed from the linker output
+        /incremental:no
+        /debug              # Generate pdbs
     LINK_NON_STATIC_RELEASE
-        /OPT:REF # Eliminates functions and data that are never referenced
-        /OPT:ICF # Perform identical COMDAT folding. Redundant COMDATs can be removed from the linker output
-        /INCREMENTAL:NO
+        /opt:ref            # Eliminates functions and data that are never referenced
+        /opt:icf            # Perform identical COMDAT folding. Redundant COMDATs can be removed from the linker output
+        /incremental:no
 )
-
-# Look for O3DE_ENABLE_COMPILER_CACHE as a CMake flag or environment variable, then sets the appropriate compatible flags for caching
-# More details about the compiler cache can be found in CompilerCache.cmake
-
-if((O3DE_ENABLE_COMPILER_CACHE OR "$ENV{O3DE_ENABLE_COMPILER_CACHE}" STREQUAL "true") AND NOT O3DE_SCRIPT_ONLY)
-    o3de_compiler_cache_activation(cache_exe_path) # Activates the compiler cache
-
-    # Configure debug info format and compiler launcher for cache compatibility
-    set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT "Embedded")
-    set(CMAKE_C_COMPILER_LAUNCHER ${cache_exe_path})
-    set(CMAKE_CXX_COMPILER_LAUNCHER ${cache_exe_path})
-
-    # Fallback to compiler flags if the debug format doesn't work, which can depend on CMake version
-    ly_append_configurations_options(
-        COMPILATION_PROFILE
-            /Z7             # Use embedded debug info instead of PDB
-        COMPILATION_RELEASE
-            /Z7
-    )
-
-    # Set required VS globals for compiler cache
-    set(CMAKE_VS_GLOBALS
-        "CLToolExe=cl.exe"
-        "CLToolPath=${CMAKE_BINARY_DIR}"
-    )
-else()
-    ly_append_configurations_options(
-        COMPILATION_PROFILE
-            /Zi             # Generate debugging information (no Edit/Continue)
-    )
-endif()
 
 set(LY_BUILD_WITH_ADDRESS_SANITIZER FALSE CACHE BOOL "Builds using AddressSanitizer (ASan). Will disable Edit/Continue, Incremental building and Run-Time checks (default = FALSE)")
 if(LY_BUILD_WITH_ADDRESS_SANITIZER)
@@ -201,6 +171,7 @@ else()
     ly_append_configurations_options(
         COMPILATION_DEBUG
             /Zi         # Generate debugging information (no Edit/Continue). Edit/Continue requires incremental linking
+
         LINK_NON_STATIC_DEBUG
             /DEBUG      # Despite the documentation states /Zi implies /DEBUG, without it, stack traces are not expanded
             /INCREMENTAL:NO
@@ -214,6 +185,7 @@ if(O3DE_BUILD_WITH_DEBUG_SYMBOLS_RELEASE)
         COMPILATION_RELEASE
             /Od             # Enable debug symbols
             /Zi             # Generate debugging information (no Edit/Continue)
+
         LINK_NON_STATIC_RELEASE
             /DEBUG          # Generate pdbs
     )
@@ -240,9 +212,9 @@ endif()
 include(cmake/Platform/Common/TargetIncludeSystemDirectories_unsupported.cmake)
 
 if(CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION VERSION_LESS_EQUAL "10.0.19041.0")
-  # Suppresses warning C5105 which triggers with Windows 10 SDK 10.0.19041 and below when using the /Zc:preprocessor option
-  # https://developercommunity.visualstudio.com/t/stdc17-generates-warning-compiling-windowsh/1249671
-  ly_append_configurations_options(
+    # Suppresses warning C5105 which triggers with Windows 10 SDK 10.0.19041 and below when using the /Zc:preprocessor option
+    # https://developercommunity.visualstudio.com/t/stdc17-generates-warning-compiling-windowsh/1249671
+    ly_append_configurations_options(
         COMPILATION
             /wd5104
             /wd5105

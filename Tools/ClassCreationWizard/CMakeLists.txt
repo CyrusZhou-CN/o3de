@@ -6,6 +6,5 @@
 #
 #
 
-add_subdirectory(LyTestTools)
-add_subdirectory(RemoteConsole)
-add_subdirectory(ClassCreationWizard)
+
+ly_install_directory(DIRECTORIES .)
