@@ -29,6 +29,7 @@ include_guard(GLOBAL)
 
 function(_o3de_compiler_launcher)
     set(supported_languages C CXX)
+    set(caching_launchers ccache sccache)
 
     # Resolves Chocolatey shim executables to their real tool paths.
     # Chocolatey commonly places shims in <ChocolateyInstall>/bin. The real tool
@@ -71,16 +72,6 @@ function(_o3de_compiler_launcher)
 
         set(${out_path} "${resolved}" PARENT_SCOPE)
     endfunction()
-
-    # CMake does not natively initialize CMAKE_<LANG>_COMPILER_LAUNCHER from
-    # environment variables, so we do it here as a convenience.
-    foreach (cl_lang IN ITEMS ${supported_languages})
-        if (NOT DEFINED CMAKE_${cl_lang}_COMPILER_LAUNCHER
-            AND DEFINED ENV{CMAKE_${cl_lang}_COMPILER_LAUNCHER}
-            AND NOT "$ENV{CMAKE_${cl_lang}_COMPILER_LAUNCHER}" STREQUAL "")
-            set(CMAKE_${cl_lang}_COMPILER_LAUNCHER "$ENV{CMAKE_${cl_lang}_COMPILER_LAUNCHER}" CACHE STRING "")
-        endif ()
-    endforeach ()
 
     # Early return if no launcher is configured
     if (NOT CMAKE_C_COMPILER_LAUNCHER AND NOT CMAKE_CXX_COMPILER_LAUNCHER)
@@ -129,6 +120,23 @@ function(_o3de_compiler_launcher)
         message(WARNING "CompilerLauncher: No valid compiler launcher found")
         return()
     endif ()
+
+    # Signal to downstream platform configuration files that a compiler launcher is active.
+    set_property(GLOBAL PROPERTY O3DE_COMPILER_LAUNCHER_ENABLED TRUE)
+
+    # Detect whether the launcher is a known caching compiler (ccache, sccache).
+    # Caching compilers require embedded debug info (/Z7) instead of separate PDBs (/Zi)
+    # because they hash the .obj content and PDB writes are non-deterministic.
+    foreach (cl_lang IN ITEMS ${supported_languages})
+        if (cl_${cl_lang}_resolved)
+            get_filename_component(cl_launcher_name "${cl_${cl_lang}_resolved}" NAME_WE)
+            string(TOLOWER "${cl_launcher_name}" cl_launcher_name)
+            if (cl_launcher_name IN_LIST caching_launchers)
+                set_property(GLOBAL PROPERTY O3DE_CACHING_COMPILER_LAUNCHER_ENABLED TRUE)
+                break()
+            endif ()
+        endif ()
+    endforeach ()
 
     # == MAKEFILE / NINJA == #
     if (CMAKE_GENERATOR MATCHES "Makefiles|Ninja|Ninja Multi-Config")
@@ -209,9 +217,6 @@ function(_o3de_compiler_launcher)
             "UseMultiToolTask=true"
         )
         set(CMAKE_VS_GLOBALS "${CMAKE_VS_GLOBALS}" PARENT_SCOPE)
-
-        # Embedded debug info is required for compiler launcher compatibility
-        set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT "Embedded" CACHE STRING "" FORCE)
 
         message(STATUS "CompilerLauncher: Configured for Visual Studio via cl.exe wrapper")
         return()
